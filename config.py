@@ -35,14 +35,10 @@ class GameConfig(BaseModel):
 
     device: str
 
-    #validation:
-    #    assert num_candidate_responses >= max_mood_priority
-    #
-
 default_config = GameConfig(
-    loss_threshold=5,
-    max_mood_priority=5,
-    num_candidate_responses=10,
+    loss_threshold=5.0,
+    start_mood_priority=0,
+    start_hallucinations_index=0,
     mood_config={
         "angry": AngryMoodConfig()
     },
@@ -56,6 +52,7 @@ default_config = GameConfig(
             "num_return_sequences": 5,
         },
     ),
+    # https://huggingface.co/j-hartmann/emotion-english-distilroberta-base
     emotion_model_config=EmotionModelConfig(
         pretrained_model_name_or_path="j-hartmann/emotion-english-distilroberta-base",
     ),

@@ -47,8 +47,8 @@ class Adversary():
 
 
     def increment_hallucinations(self):
-        self._mood_state.hallucinations_priority = min(
-            self._mood_state.hallucinations_priority + 1,
+        self._mood_state.hallucinations_index = min(
+            self._mood_state.hallucinations_index + 1,
             len(self._mood_state.hallucinations) - 1
         )
 
@@ -91,7 +91,7 @@ class Adversary():
 
         # TODO: can be precomputed
         hallucination_tokens = self._chat_tokenizer(
-            # probably needs to start with <s>, use _chat_tokenizer.s_token
+            # use _chat_tokenizer.s_token
             "<s>" + self._mood_state.hallucinations[self._mood_state.hallucinations_index],
             return_attention_mask=False,
             return_special_tokens_mask=False,
@@ -115,7 +115,8 @@ class Adversary():
         )
 
         mood_scores = self._get_mood_scores(response_texts)
-        chosen_index = torch.argmax(mood_scores)
+        sorted_indexes = torch.argsort(-1 * mood_scores) # hack: reverse sort
+        chosen_index = sorted_indexes[self._mood_state.mood_priority]
         chosen_response = response_texts[chosen_index]
 
         return chosen_response

@@ -47,7 +47,11 @@ class Game():
         target_words_left = copy.deepcopy(target_words)
 
         while True:
-            user_input = input("User: ")
+            try:
+                user_input = input("User: ")
+            except EOFError:
+                print()
+                break
 
             chat_loss = self._get_chat_loss(user_input)
             print(chat_loss)
