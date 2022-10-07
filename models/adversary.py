@@ -1,5 +1,6 @@
 from typing import List, Any, Dict
 
+import torch
 from transformers import (
     AutoTokenizer,
     AutoModelForSeq2SeqLM,
@@ -21,30 +22,24 @@ class Adversary():
         self._emotion_tokenizer = AutoTokenizer.from_pretrained(game_config.emotion_model_config.pretrained_model_name_or_path)
         self._emotion_model = AutoModelForSequenceClassification.from_pretrained(game_config.emotion_model_config.pretrained_model_name_or_path)
         self._emotion_model.to(self._game_config.device)
+        self._emotion_model.eval()
 
         self._chat_tokenizer = AutoTokenizer.from_pretrained(game_config.chat_model_config.pretrained_model_name_or_path)
         self._chat_model = AutoModelForSeq2SeqLM.from_pretrained(game_config.chat_model_config.pretrained_model_name_or_path)
         self._chat_model.to(self._game_config.device)
+        self._chat_model.eval()
 
         bad_words_tokens = self._chat_tokenizer(
             " ".join(self._game_config.bad_words),
-            # don't return attention mask
-            # don't include special tokens
             add_special_tokens=False,
-            #return_attention_mask=False,
-            #return_special_tokens_mask=False,
+            return_attention_mask=False,
+            return_special_tokens_mask=False,
             return_tensors="pt"
         )
-        print(bad_words_tokens)
         self._bad_words_ids = bad_words_tokens["input_ids"].tolist()
 
 
-    def _get_mood_logits(self, response):
-        return self._mood_classifier(response)
-
-
     def increment_mood(self):
-        print("increment_mood")
         self._mood_state.mood_priority = max(
             self._mood_state.mood_priority - 1,
             1
@@ -58,28 +53,69 @@ class Adversary():
         )
 
 
-    def generate_response(self, chat_history):
-        print(chat_history)
+    def _get_mood_scores(self, response_texts):
+        tokens = self._emotion_tokenizer(
+            response_texts,
+            padding=True,
+            return_tensors="pt"
+        )
+        tokens.to(self._game_config.device)
 
+        with torch.no_grad():
+            emotion_outputs = self._emotion_model(**tokens)
+
+        emotion_logits = emotion_outputs.logits
+        scores = torch.nn.functional.softmax(emotion_logits[:, self._mood_state.mood_index], dim=0)
+
+        return scores
+
+
+    def _post_process_chat_outputs(self, outputs_with_hallucination, decoder_input_ids):
+        outputs = outputs_with_hallucination[:, len(decoder_input_ids[0]):]
+        response_texts = self._chat_tokenizer.batch_decode(
+            outputs,
+            skip_special_tokens=True
+        )
+        response_texts = [
+            ".".join(response_text.split(".")[:-1]) + "."
+            for response_text in response_texts
+        ]
+
+        return response_texts
+
+
+    def generate_response(self, chat_history):
         input_text = "\n".join(chat_history[-2:])
-        print(input_text)
         input_tokens = self._chat_tokenizer(input_text, return_tensors="pt")
         input_tokens.to(self._game_config.device)
-        print(input_tokens)
 
+        # TODO: can be precomputed
         hallucination_tokens = self._chat_tokenizer(
-            self._mood_state.hallucinations[self._mood_state.hallucinations_index],
-            # Don't return attention mask
+            # probably needs to start with <s>, use _chat_tokenizer.s_token
+            "<s>" + self._mood_state.hallucinations[self._mood_state.hallucinations_index],
+            return_attention_mask=False,
+            return_special_tokens_mask=False,
+            add_special_tokens=False,
             return_tensors="pt",
         )
         hallucination_tokens.to(self._game_config.device)
+        hallucination_input_ids = hallucination_tokens["input_ids"]
 
-        responses = self._chat_model.generate(
-            **input_tokens,
-            **self._game_config.chat_model_config.generate_kwargs,
-            decoder_input_ids=hallucination_tokens["input_ids"],
-            bad_words_ids=self._bad_words_ids,
+        with torch.no_grad():
+            outputs = self._chat_model.generate(
+                **input_tokens,
+                **self._game_config.chat_model_config.generate_kwargs,
+                decoder_input_ids=hallucination_input_ids,
+                bad_words_ids=self._bad_words_ids,
+            )
+
+        response_texts = self._post_process_chat_outputs(
+            outputs,
+            decoder_input_ids=hallucination_input_ids
         )
 
-        mood_logits = [_get_mood_logits(response) for response in responses]
-        # processing to get scores
+        mood_scores = self._get_mood_scores(response_texts)
+        chosen_index = torch.argmax(mood_scores)
+        chosen_response = response_texts[chosen_index]
+
+        return chosen_response

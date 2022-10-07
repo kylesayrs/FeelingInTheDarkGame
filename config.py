@@ -9,11 +9,11 @@ class MoodConfig(BaseModel):
     pass
 
 class AngryMoodConfig(MoodConfig):
-    name: str = "angry"
+    mood_index: int = 3
     hallucinations: List[str] = [
-        "asdf"
+        ""
     ]
-    weight_path: str = "asdf"
+    # TODO: weight_path: str
 
 class ChatModelConfig(BaseModel):
     pretrained_model_name_or_path: str
@@ -49,11 +49,11 @@ default_config = GameConfig(
     chat_model_config=ChatModelConfig(
         pretrained_model_name_or_path="facebook/blenderbot-400M-distill",
         generate_kwargs={
-            "max_length": 40,
+            "max_length": 30,
             "do_sample": True,
             "top_p": 0.9,
-            "temperature": 0.85,
-            "num_return_sequences": 40,
+            "temperature": 0.95,
+            "num_return_sequences": 5,
         },
     ),
     emotion_model_config=EmotionModelConfig(
